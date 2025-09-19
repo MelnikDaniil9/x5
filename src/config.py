@@ -23,12 +23,12 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 MIXED_PRECISION = torch.cuda.is_available()  # RTX 4060 Ti → да
 
 # BIO-метки
-LABEL_LIST = [
-    "O",
-    "B-TYPE", "I-TYPE",
+LABELS = [
+    "O", 
     "B-BRAND", "I-BRAND",
+    "B-TYPE", "I-TYPE",
     "B-VOLUME", "I-VOLUME",
-    "B-PERCENT", "I-PERCENT",
+    "B-PACKAGE", "I-PACKAGE"
 ]
-LABEL2ID = {l: i for i, l in enumerate(LABEL_LIST)}
-ID2LABEL = {i: l for l, i in LABEL2ID.items()}
+LABEL2ID = {label: i for i, label in enumerate(LABELS)}
+ID2LABEL = {i: label for i, label in enumerate(LABELS)}

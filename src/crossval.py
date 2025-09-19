@@ -1,12 +1,10 @@
 import pandas as pd
 from sklearn.model_selection import KFold
 import torch
-
 from train import train_one_fold
 
 N_FOLDS = 5
 SEED = 42
-
 
 def run_crossval(data_path="data/train.csv"):
     df = pd.read_csv(data_path, sep=";")
@@ -23,7 +21,7 @@ def run_crossval(data_path="data/train.csv"):
 
         torch.cuda.empty_cache()
 
-    print("\n===== Cross-validation results =====")
+    print("\n===== Результаты кросс-валидации =====")
     for i, score in enumerate(fold_scores, 1):
         print(f"Fold {i}: F1={score:.4f}")
     print(f"Средний F1 по {N_FOLDS} фолдам: {sum(fold_scores)/len(fold_scores):.4f}")

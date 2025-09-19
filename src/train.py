@@ -1,13 +1,13 @@
 import os
-import torch
+
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
 from transformers import BertForTokenClassification, get_scheduler
 
-from dataset import load_splits_from_df, LABELS
-from utils import evaluate_model, collate_fn, save_model
+from dataset import load_splits_from_df
+from utils import evaluate_model, save_model
 
-from config import BATCH_SIZE, MODEL_NAME, DEVICE, LEARNING_RATE, EPOCHS, WARMUP_RATIO
+from config import BATCH_SIZE, MODEL_NAME, DEVICE, LEARNING_RATE, EPOCHS, WARMUP_RATIO, LABELS
 
 
 def train_one_fold(train_df, val_df, fold_id=None, output_dir="outputs"):

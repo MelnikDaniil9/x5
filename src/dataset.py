@@ -1,10 +1,10 @@
 import ast
 import random
 import pandas as pd
-from typing import List, Dict, Tuple
-
 import torch
-from torch.utils.data import Dataset, DataLoader
+
+from typing import List, Dict, Tuple
+from torch.utils.data import Dataset as TorchDataset, DataLoader
 from transformers import AutoTokenizer, DataCollatorForTokenClassification
 
 from config import MODEL_NAME, MAX_LEN, LABEL2ID, SEED
@@ -14,7 +14,7 @@ random.seed(SEED)
 # Один общий токенизатор на проект
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 
-def _encode_with_labels(sample: str, spans: List[Tuple[int,int,str]]) -> Dict[str, List[int]]:
+def _encode_with_labels(sample: str, spans: List[Tuple[int, int, str]]) -> Dict[str, List[int]]:
     """
     Токенизируем строку и раскладываем BIO-метки по токенам по offset_mapping.
     """
@@ -42,7 +42,7 @@ def _encode_with_labels(sample: str, spans: List[Tuple[int,int,str]]) -> Dict[st
                 # принимаем исходную метку из спана (B-XXX или I-XXX)
                 labels[i] = tag
             elif labels[i] == "O":
-                ent_type = tag.split("-")[-1]  # TYPE/BRAND/VOLUME/PERCENT
+                ent_type = tag.split("-")[-1]  # TYPE/BRAND/VOLUME/PERCENT/...
                 labels[i] = "I-" + ent_type
 
     # в числовые id; спецтокены, где offset (0,0), делаем -100
@@ -57,7 +57,7 @@ def _encode_with_labels(sample: str, spans: List[Tuple[int,int,str]]) -> Dict[st
     enc["labels"] = label_ids
     return enc
 
-class NEREncodingsDataset(Dataset):
+class NEREncodingsDataset(TorchDataset):
     def __init__(self, encodings: List[Dict[str, List[int]]]):
         self.data = encodings
 
@@ -74,7 +74,6 @@ def load_splits(csv_path: str, val_size: float = 0.1):
     руками делим на train/val.
     """
     df = pd.read_csv(csv_path, sep=";")
-    # В твоём файле колонки называются sample + annotation
     assert {"sample", "annotation"}.issubset(df.columns), \
         f"Ожидались колонки 'sample' и 'annotation', получили: {df.columns}"
 
@@ -100,6 +99,27 @@ def load_splits(csv_path: str, val_size: float = 0.1):
     return train_ds, val_ds, collator
 
 def make_loaders(train_ds, val_ds, collator, batch_size: int):
-    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, collate_fn=collator)
+    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True,  collate_fn=collator)
     val_loader   = DataLoader(val_ds,   batch_size=batch_size, shuffle=False, collate_fn=collator)
     return train_loader, val_loader
+
+def load_splits_from_df(train_df, val_df):
+    """
+    Создаём PyTorch Dataset-ы из pandas.DataFrame (для кросс-валидации).
+    НИКАКОГО HuggingFace datasets здесь не используем.
+    """
+    # если annotation хранится строкой -> превращаем в список
+    if isinstance(train_df["annotation"].iloc[0], str):
+        train_df = train_df.copy()
+        val_df = val_df.copy()
+        train_df["annotation"] = train_df["annotation"].apply(ast.literal_eval)
+        val_df["annotation"] = val_df["annotation"].apply(ast.literal_eval)
+
+    train_encs = [_encode_with_labels(s, a) for s, a in zip(train_df["sample"], train_df["annotation"])]
+    val_encs   = [_encode_with_labels(s, a) for s, a in zip(val_df["sample"],   val_df["annotation"])]
+
+    train_ds = NEREncodingsDataset(train_encs)
+    val_ds   = NEREncodingsDataset(val_encs)
+
+    collator = DataCollatorForTokenClassification(tokenizer)
+    return train_ds, val_ds, collator
