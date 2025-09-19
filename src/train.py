@@ -1,121 +1,66 @@
-import math
 import os
-import time
 import torch
 from torch.optim import AdamW
-from torch.cuda.amp import autocast, GradScaler
+from torch.utils.data import DataLoader
+from transformers import BertForTokenClassification, get_scheduler
 
-from transformers import get_linear_schedule_with_warmup
+from dataset import load_splits_from_df, LABELS
+from utils import evaluate_model, collate_fn, save_model
 
-from seqeval.metrics import precision_score, recall_score, f1_score
+from config import BATCH_SIZE, MODEL_NAME, DEVICE, LEARNING_RATE, EPOCHS, WARMUP_RATIO
 
-from config import (
-    DATA_PATH, OUTPUT_DIR, DEVICE, MIXED_PRECISION,
-    EPOCHS, BATCH_SIZE, LEARNING_RATE, WEIGHT_DECAY, WARMUP_RATIO,
-    ID2LABEL, SEED,
-)
-from dataset import load_splits, make_loaders
-from model import load_model
-import random
-import numpy as np
 
-def set_seed(seed: int):
-    random.seed(seed); np.random.seed(seed); torch.manual_seed(seed)
-    if torch.cuda.is_available(): torch.cuda.manual_seed_all(seed)
+def train_one_fold(train_df, val_df, fold_id=None, output_dir="outputs"):
+    print(f"Starting training on fold {fold_id}...")
 
-def ids_to_tags(batch_ids, batch_label_ids):
-    """
-    Преобразуем батч предсказаний и истинных меток [-100, id...] -> списки BIO-строк,
-    игнорируя позиции с -100.
-    """
-    all_preds, all_labels = [], []
-    for preds, labels in zip(batch_ids, batch_label_ids):
-        p_seq, l_seq = [], []
-        for p, l in zip(preds, labels):
-            if l == -100:  # спецтокены/паддинг
-                continue
-            p_seq.append(ID2LABEL[int(p)])
-            l_seq.append(ID2LABEL[int(l)])
-        all_preds.append(p_seq)
-        all_labels.append(l_seq)
-    return all_preds, all_labels
+    # Загружаем датасет из DataFrame
+    train_ds, val_ds, collator = load_splits_from_df(train_df, val_df)
 
-def evaluate(model, val_loader):
-    model.eval()
-    all_preds, all_labels = [], []
-    with torch.no_grad():
-        for batch in val_loader:
-            batch = {k: v.to(DEVICE) for k, v in batch.items()}
-            logits = model(**{k: v for k, v in batch.items() if k != "labels"}).logits
-            pred_ids = logits.argmax(-1).detach().cpu().tolist()
-            label_ids = batch["labels"].detach().cpu().tolist()
-            p, l = ids_to_tags(pred_ids, label_ids)
-            all_preds.extend(p)
-            all_labels.extend(l)
-    prec = precision_score(all_labels, all_preds)
-    rec  = recall_score(all_labels, all_preds)
-    f1   = f1_score(all_labels, all_preds)
-    return prec, rec, f1
+    train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True, collate_fn=collator)
+    val_loader = DataLoader(val_ds, batch_size=BATCH_SIZE, shuffle=False, collate_fn=collator)
 
-def train():
-    set_seed(SEED)
-
-    print(f"Loading data from {DATA_PATH}")
-    train_ds, val_ds, collator = load_splits(DATA_PATH, val_size=0.1)
-    train_loader, val_loader = make_loaders(train_ds, val_ds, collator, BATCH_SIZE)
-
-    model = load_model().to(DEVICE)
-
-    optimizer = AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
+    model = BertForTokenClassification.from_pretrained(MODEL_NAME, num_labels=len(LABELS)).to(DEVICE)
+    optimizer = AdamW(model.parameters(), lr=LEARNING_RATE)
 
     total_steps = len(train_loader) * EPOCHS
     warmup_steps = int(total_steps * WARMUP_RATIO)
-    scheduler = get_linear_schedule_with_warmup(optimizer, warmup_steps, total_steps)
 
-    scaler = GradScaler(enabled=MIXED_PRECISION)
+    scheduler = get_scheduler(
+        "linear",
+        optimizer=optimizer,
+        num_warmup_steps=warmup_steps,
+        num_training_steps=total_steps,
+    )
 
-    best_f1 = -1.0
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-    print(f"Device: {DEVICE}, mixed_precision={MIXED_PRECISION}")
-    print(f"Steps per epoch: {len(train_loader)}, total: {total_steps}, warmup: {warmup_steps}")
-
-    for epoch in range(1, EPOCHS + 1):
+    best_f1 = 0
+    for epoch in range(EPOCHS):
         model.train()
-        epoch_loss = 0.0
-        t0 = time.time()
+        total_loss = 0
 
         for batch in train_loader:
             batch = {k: v.to(DEVICE) for k, v in batch.items()}
+            optimizer.zero_grad()
 
-            optimizer.zero_grad(set_to_none=True)
-            with autocast(enabled=MIXED_PRECISION):
-                out = model(**batch)
-                loss = out.loss
+            out = model(**batch)
+            loss = out.loss
+            loss.backward()
 
-            scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
+            optimizer.step()
             scheduler.step()
+            total_loss += loss.item()
 
-            epoch_loss += loss.item()
+        avg_loss = total_loss / len(train_loader)
+        val_f1 = evaluate_model(model, val_loader, DEVICE)
 
-        dt = time.time() - t0
-        avg_loss = epoch_loss / max(1, len(train_loader))
-        prec, rec, f1 = evaluate(model, val_loader)
+        print(f"[Fold {fold_id}] Epoch {epoch+1}/{EPOCHS} | Loss={avg_loss:.4f} | Val F1={val_f1:.4f}")
 
-        print(f"[Epoch {epoch}] loss={avg_loss:.4f}  val: P={prec:.4f} R={rec:.4f} F1={f1:.4f}  time={dt:.1f}s")
+        if val_f1 > best_f1:
+            best_f1 = val_f1
+            save_path = os.path.join(output_dir, f"ner_rubert_fold{fold_id}")
+            save_model(model, save_path)
 
-        # save best
-        if f1 > best_f1:
-            best_f1 = f1
-            print(f"↳ New best F1={best_f1:.4f}. Saving to {OUTPUT_DIR}")
-            model.save_pretrained(OUTPUT_DIR)
-            # сохраняем и токенизатор рядом с моделью
-            from dataset import tokenizer
-            tokenizer.save_pretrained(OUTPUT_DIR)
+    return best_f1
 
-    print(f"Training done. Best F1={best_f1:.4f}")
 
 if __name__ == "__main__":
-    train()
+    print("⚠️ Используй crossval.py для запуска кросс-валидации.")

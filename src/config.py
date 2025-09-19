@@ -8,14 +8,14 @@ OUTPUT_DIR = os.path.join(BASE_DIR, "..", "outputs", "ner_rubert_model")
 
 # Модель и токенизация
 MODEL_NAME = "DeepPavlov/rubert-base-cased"
-MAX_LEN = 64
+MAX_LEN = 128
 
 # Обучение
-EPOCHS = 3
+EPOCHS = 5
 BATCH_SIZE = 32
-LEARNING_RATE = 2e-5
-WEIGHT_DECAY = 0.01
-WARMUP_RATIO = 0.1
+LEARNING_RATE = 3e-5
+WEIGHT_DECAY = 0.03
+WARMUP_RATIO = 0.2
 SEED = 42
 
 # Устройство
