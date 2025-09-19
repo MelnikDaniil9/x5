@@ -4,3 +4,5 @@ __pycache__/
 .DS_Store
 data/
 outputs/
+cache/
+model_checkpoint
