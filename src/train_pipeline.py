@@ -32,9 +32,9 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 # === Гиперпараметры ===
 BATCH_SIZE = 64
-EPOCHS = 5
-LEARNING_RATE = 2e-5
-WEIGHT_DECAY = 0.01
+EPOCHS = 10
+LEARNING_RATE = 3e-5
+WEIGHT_DECAY = 0.02
 TRAIN_PATH = "data/train.csv"
 CACHE_DIR = "cache"
 CKPT_DIR = "model_checkpoint"
