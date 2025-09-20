@@ -1,0 +1,8 @@
+torch==2.8.0
+transformers==4.56.1
+pytorch-crf @ git+https://github.com/kmkurn/pytorch-crf.git@623e3402d00a2728e99d6e8486010d67c754267b
+TorchCRF==1.1.0
+fastapi==0.116.2
+uvicorn==0.36.0
+pandas==2.3.2
+regex==2025.9.18

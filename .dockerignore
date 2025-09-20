@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.swp
+*.swo
+*.tmp
+*.log
+
+# Исключаем папки
+data/
+cache/
+.cach*
+venv/
+.idea/
+.vscode/

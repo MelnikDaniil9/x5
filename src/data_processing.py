@@ -12,7 +12,7 @@
 import csv, random, re
 from transformers import AutoTokenizer
 from torch.nn.utils.rnn import pad_sequence
-from model import label2id
+from .model import label2id
 
 # Инициализируем токенизатор (например, XLM-RoBERTa)
 tokenizer = AutoTokenizer.from_pretrained("xlm-roberta-large", use_fast=True)
